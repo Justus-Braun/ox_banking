@@ -80,5 +80,8 @@
   "logs_search": "Search by name or message...",
   "message": "Message",
   "new_balance": "New balance",
-  "date": "Date"
+  "date": "Date",
+  "access_atm":  "ATM öffnen",
+  "access_bank":  "Bank öffnen",
+  "rob_atm": "ATM ausrauben"
 }
