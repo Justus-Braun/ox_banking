@@ -2,11 +2,16 @@ import type { Character } from '../common/typings';
 import targets from '../../data/targets.json';
 import locations from '../../data/locations.json';
 import atms from '../../data/atms.json';
+import { hideTextUI } from '@overextended/ox_lib/client';
 import { SendTypedNUIMessage, serverNuiCallback } from 'utils';
 import { getLocales, locale } from '@overextended/ox_lib/shared';
+
+import { OxAccountPermissions, OxAccountRole } from '@overextended/ox_core';
+
 import {initLocale} from '@overextended/ox_lib/shared'
 import { OxAccountPermissions, OxAccountRoles } from '@overextended/ox_core';
 import { Vector3 } from '@nativewrappers/client';
+
 
 const usingTarget = GetConvarInt('ox_banking:target', 0) === 1;
 let hasLoadedUi = false;
@@ -18,7 +23,7 @@ initLocale()
 function initUI() {
   if (hasLoadedUi) return;
 
-  const accountRoles: OxAccountRoles[] = GlobalState.accountRoles;
+  const accountRoles: OxAccountRole[] = GlobalState.accountRoles;
 
   // @ts-expect-error
   const permissions: Record<OxAccountRoles, OxAccountPermissions> = {};
@@ -56,6 +61,8 @@ const openBank = () => {
   const playerCash: number = exports.ox_inventory.GetItemCount('money');
   isUiOpen = true;
 
+  hideTextUI();
+
   SendTypedNUIMessage<Character>('openBank', { cash: playerCash });
   SetNuiFocus(true, true);
 };
@@ -68,7 +75,7 @@ const createBankBlip = (coords: number[]) => {
   SetBlipColour(blip, 2);
   SetBlipAsShortRange(blip, true);
   BeginTextCommandSetBlipName('STRING');
-  AddTextComponentString('Bank');
+  AddTextComponentString(locale('bank'));
   EndTextCommandSetBlipName(blip);
 };
 
@@ -152,7 +159,7 @@ RegisterNuiCallback('exit', () => {
 on('ox_inventory:itemCount', (itemName: string, count: number) => {
   if (!isUiOpen || isATMopen || itemName !== 'money') return;
 
-  SendTypedNUIMessage<Character>('openBank', { cash: count });
+  SendTypedNUIMessage<Character>('refreshCharacter', { cash: count });
 });
 
 serverNuiCallback('getDashboardData');
@@ -170,3 +177,5 @@ serverNuiCallback('transferMoney');
 serverNuiCallback('renameAccount');
 serverNuiCallback('convertAccountToShared');
 serverNuiCallback('getLogs');
+serverNuiCallback('getInvoices');
+serverNuiCallback('payInvoice');

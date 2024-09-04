@@ -1,17 +1,16 @@
-import { Button } from '@/components/ui/button';
 import React from 'react';
 import { DateRangePicker } from '@/components/DateRangePicker';
-import { useLogsFilters, useSetLogsFiltersDebounce } from '@/state/accounts';
-import { DateRange } from 'react-day-picker';
+import { useSetLogsFiltersDebounce, useLogsFilters } from '@/state/accounts';
+import LogsTypeSelect from './LogsTypeSelect';
 
 const LogsFilters: React.FC = () => {
-  const filters = useLogsFilters();
   const setFilters = useSetLogsFiltersDebounce();
+  const filters = useLogsFilters();
 
   return (
     <div className="flex items-center gap-2">
-      <DateRangePicker />
-      <Button>Type</Button>
+      <DateRangePicker date={filters.date} setValue={(date) => setFilters((prev) => ({ ...prev, date, page: 0 }))} />
+      <LogsTypeSelect />
     </div>
   );
 };

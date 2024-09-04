@@ -6,12 +6,18 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { useSetLogsFiltersDebounce } from '../state/accounts';
+import locales from '@/locales';
 
-export function DateRangePicker({ className }: React.HTMLAttributes<HTMLDivElement>) {
-  const setFilters = useSetLogsFiltersDebounce();
-  const [date, setDate] = React.useState<DateRange | undefined>(undefined);
-
+export function DateRangePicker({
+  className,
+  date,
+  setValue,
+  placeholder,
+}: React.HTMLAttributes<HTMLDivElement> & {
+  setValue: (date?: DateRange) => void;
+  date: DateRange | undefined;
+  placeholder?: string;
+}): React.ReactElement {
   return (
     <div className={cn('grid gap-2', className)}>
       <Popover>
@@ -31,7 +37,7 @@ export function DateRangePicker({ className }: React.HTMLAttributes<HTMLDivEleme
                 format(date.from, 'LLL dd, y')
               )
             ) : (
-              <span>Pick a date</span>
+              <span>{placeholder || locales.pick_date}</span>
             )}
           </Button>
         </PopoverTrigger>
@@ -41,8 +47,7 @@ export function DateRangePicker({ className }: React.HTMLAttributes<HTMLDivEleme
             defaultMonth={date?.from}
             selected={date}
             onSelect={(date) => {
-              setDate(date);
-              setFilters((prev) => ({ ...prev, date, page: 0 }));
+              setValue(date);
             }}
             disabled={{ after: new Date() }}
             numberOfMonths={2}
