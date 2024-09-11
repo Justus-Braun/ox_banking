@@ -21,15 +21,37 @@ onClientCallback('ox_banking:getAccounts', async (playerId): Promise<Account[]> 
 
   const accessAccounts = await oxmysql.rawExecute<OxAccountUserMetadata[]>(
     `
-    SELECT
-      access.role, account.*, c.fullName as ownerName
-    FROM \`accounts_access\` access
-    LEFT JOIN accounts account ON account.id = access.accountId
+    SELECT DISTINCT
+      COALESCE(access.role, gg.accountRole) AS role,
+      account.*,
+      COALESCE(c.fullName, g.label) AS ownerName
+    FROM
+      accounts account
     LEFT JOIN characters c ON account.owner = c.charId
+    LEFT JOIN ox_groups g
+      ON account.group = g.name
+    LEFT JOIN character_groups cg
+      ON cg.charId = ?
+      AND cg.name = account.group
+    LEFT JOIN ox_group_grades gg
+      ON account.group = gg.group
+      AND cg.grade = gg.grade
+    LEFT JOIN accounts_access access
+      ON account.id = access.accountId
+      AND access.charId = ?
     WHERE
-      access.charId = ? AND account.type != 'inactive'
+      account.type != 'inactive'
+      AND (
+        access.charId = ?
+        OR (
+          account.group IS NOT NULL
+          AND gg.accountRole IS NOT NULL
+        )
+      )
+    GROUP BY
+      account.id;
     `,
-    [player.charId]
+    [player.charId, player.charId, player.charId]
   );
 
   const accounts: Account[] = accessAccounts.map((account) => ({
@@ -154,7 +176,7 @@ onClientCallback('ox_banking:getDashboardData', async (playerId): Promise<Dashbo
 
   const transactions = await oxmysql.rawExecute<Transaction[]>(
     `
-    SELECT id, amount, DATE_FORMAT(date, '%Y-%m-%d %H:%i') as date, toId, fromId, message,
+    SELECT id, amount, UNIX_TIMESTAMP(date) as date, toId, fromId, message,
     CASE
       WHEN toId = ? THEN 'inbound'
       ELSE 'outbound'
@@ -164,12 +186,12 @@ onClientCallback('ox_banking:getDashboardData', async (playerId): Promise<Dashbo
     ORDER BY id DESC
     LIMIT 5
     `,
-    [account.id, account.id, account.id]
+    [account.accountId, account.accountId, account.accountId]
   );
 
   const invoices = await oxmysql.rawExecute<Invoice[]>(
     `
-     SELECT ai.id, ai.amount, DATE_FORMAT(ai.dueDate, '%Y-%m-%d %H:%i') as dueDate, DATE_FORMAT(ai.paidAt, '%Y-%m-%d %H:%i') as paidAt, a.label,
+     SELECT ai.id, ai.amount, UNIX_TIMESTAMP(ai.dueDate) as dueDate, UNIX_TIMESTAMP(ai.paidAt) as paidAt, a.label,
      CASE
         WHEN ai.payerId IS NOT NULL THEN 'paid'
         WHEN NOW() > ai.dueDate THEN 'overdue'
@@ -181,7 +203,7 @@ onClientCallback('ox_banking:getDashboardData', async (playerId): Promise<Dashbo
      ORDER BY ai.id DESC
      LIMIT 5
      `,
-    [account.id]
+    [account.accountId]
   );
 
   return {
@@ -207,7 +229,7 @@ onClientCallback(
     }
   ): Promise<AccessTableData> => {
     const account = await GetAccount(accountId);
-    const hasPermission = !(await account?.playerHasPermission(playerId, 'manageUser'));
+    const hasPermission = await account?.playerHasPermission(playerId, 'manageUser');
 
     if (!hasPermission) return;
 
@@ -313,7 +335,7 @@ onClientCallback(
     }
   ): Promise<true | 'state_id_not_exists'> => {
     const account = await GetAccount(accountId);
-    const hasPermission = !(await account?.playerHasPermission(playerId, 'transferOwnership'));
+    const hasPermission = await account?.playerHasPermission(playerId, 'transferOwnership');
 
     if (!hasPermission) return;
 
@@ -344,7 +366,7 @@ onClientCallback(
   'ox_banking:renameAccount',
   async (playerId, { accountId, name }: { accountId: number; name: string }) => {
     const account = await GetAccount(accountId);
-    const hasPermission = !(await account?.playerHasPermission(playerId, 'manageAccount'));
+    const hasPermission = await account?.playerHasPermission(playerId, 'manageAccount');
 
     if (!hasPermission) return;
 
@@ -374,14 +396,14 @@ onClientCallback(
   'ox_banking:getLogs',
   async (playerId, { accountId, filters }: { accountId: number; filters: LogsFilters }) => {
     const account = await GetAccount(accountId);
-    const hasPermission = !(await account?.playerHasPermission(playerId, 'viewHistory'));
+    const hasPermission = await account?.playerHasPermission(playerId, 'viewHistory');
 
     if (!hasPermission) return;
 
     const search = sanitizeSearch(filters.search);
 
     let dateSearchString = '';
-    let queryParams: any[] = [accountId, accountId];
+    let queryParams: any[] = [accountId, accountId, accountId, accountId];
 
     let typeQueryString = ``;
 
@@ -409,27 +431,45 @@ onClientCallback(
 
     queryWhere += `${typeQueryString} ${dateSearchString}`;
 
-    const countQueryParams = [...queryParams];
+    const countQueryParams = [...queryParams].slice(2, queryParams.length);
 
-    queryParams.push(filters.page * 9);
+    queryParams.push(filters.page * 6);
 
     const queryData = await oxmysql
       .rawExecute<RawLogItem[]>(
         `
-          SELECT at.id, at.toId, at.fromBalance, at.toBalance, at.message, at.amount, DATE_FORMAT(at.date, '%Y-%m-%d %H:%i') AS date, c.fullName AS name
+          SELECT
+            at.id,
+            at.fromId,
+            at.toId,
+            at.message,
+            at.amount,
+            CONCAT(fa.id, ' - ', fa.label) AS fromAccountLabel,
+            CONCAT(ta.id, ' - ', ta.label) AS toAccountLabel,
+            UNIX_TIMESTAMP(at.date) AS date,
+            c.fullName AS name,
+            CASE
+              WHEN at.toId = ? THEN 'inbound'
+              ELSE 'outbound'
+            END AS 'type',
+            CASE
+                WHEN at.toId = ? THEN at.toBalance
+                ELSE at.fromBalance
+            END AS newBalance
           FROM accounts_transactions at
           LEFT JOIN characters c ON c.charId = at.actorId
+          LEFT JOIN accounts ta ON ta.id = at.toId
+          LEFT JOIN accounts fa ON fa.id = at.fromId
           ${queryWhere}
           ORDER BY at.id DESC
-          LIMIT 9
+          LIMIT 6
           OFFSET ?
         `,
         queryParams
       )
       .catch((e) => console.log(e));
 
-    console.log(queryWhere);
-    console.log(JSON.stringify(queryParams));
+    console.log(JSON.stringify(queryData, null, 2));
 
     const totalLogsCount = await oxmysql
       .prepare(
@@ -437,14 +477,20 @@ onClientCallback(
           SELECT COUNT(*)
           FROM accounts_transactions at
           LEFT JOIN characters c ON c.charId = at.actorId
+          LEFT JOIN accounts ta ON ta.id = at.toId
+          LEFT JOIN accounts fa ON fa.id = at.fromId
           ${queryWhere}
         `,
         countQueryParams
       )
       .catch((e) => console.log(e));
 
+    console.log(totalLogsCount);
+
+    console.log(Math.ceil(totalLogsCount / 6));
+
     return {
-      numberOfPages: Math.ceil(totalLogsCount / 9),
+      numberOfPages: Math.ceil(totalLogsCount / 6),
       logs: queryData,
     };
   }
@@ -454,7 +500,7 @@ onClientCallback(
   'ox_banking:getInvoices',
   async (playerId, { accountId, filters }: { accountId: number; filters: InvoicesFilters }) => {
     const account = await GetAccount(accountId);
-    const hasPermission = !(await account?.playerHasPermission(playerId, 'payInvoice'));
+    const hasPermission = await account?.playerHasPermission(playerId, 'payInvoice');
 
     if (!hasPermission) return;
 
@@ -492,7 +538,7 @@ onClientCallback(
             a.label,
             ai.amount,
             ai.message,
-            DATE_FORMAT(ai.dueDate, '%Y-%m-%d %H:%i') as dueDate,
+            UNIX_TIMESTAMP(ai.dueDate) as dueDate,
             'unpaid' AS type
           FROM accounts_invoices ai
           ${queryJoins}
@@ -521,8 +567,8 @@ onClientCallback(
           a.label,
           ai.amount,
           ai.message,
-          DATE_FORMAT(ai.dueDate, '%Y-%m-%d %H:%i') as dueDate,
-          DATE_FORMAT(ai.paidAt, '%Y-%m-%d %H:%i') as paidAt,
+          UNIX_TIMESTAMP(ai.dueDate) AS dueDate,
+          UNIX_TIMESTAMP(ai.paidAt) AS paidAt,
           'paid' AS type
         FROM accounts_invoices ai
         ${queryJoins}
@@ -551,8 +597,8 @@ onClientCallback(
           a.label,
           ai.amount,
           ai.message,
-          DATE_FORMAT(ai.sentAt, '%Y-%m-%d %H:%i') as sentAt,
-          DATE_FORMAT(ai.dueDate, '%Y-%m-%d %H:%i') as dueDate,
+          UNIX_TIMESTAMP(ai.sentAt) AS sentAt,
+          UNIX_TIMESTAMP(ai.dueDate) AS dueDate,
           CASE
             WHEN ai.payerId IS NOT NULL THEN 'paid'
             WHEN NOW() > ai.dueDate THEN 'overdue'

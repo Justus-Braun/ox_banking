@@ -11,7 +11,7 @@ export type AccessTableUser = {
 
 export interface Transaction {
   id: number;
-  date: string;
+  date: number;
   amount: number;
   type: 'inbound' | 'outbound';
   message?: string;
@@ -20,8 +20,8 @@ export interface Transaction {
 export interface Invoice {
   id: number;
   amount: number;
-  dueDate: string;
-  paidAt?: string;
+  dueDate: number;
+  paidAt?: number;
   label: string;
   status: 'paid' | 'unpaid' | 'overdue';
 }
@@ -44,13 +44,14 @@ export interface AccessTableData {
 
 export interface RawLogItem {
   id: number;
+  fromId: number;
   toId: number;
   name: string;
   message: string;
   amount: number;
-  date: string;
-  fromBalance?: number;
-  toBalance?: number;
+  date: number;
+  fromAccountLabel?: string;
+  toAccountLabel?: string;
 }
 
 export type LogItem = RawLogItem & {
@@ -78,7 +79,7 @@ export type BaseInvoice = {
   label: string;
   message: string;
   amount: number;
-  dueDate: string;
+  dueDate: number;
 };
 
 export type UnpaidInvoice = BaseInvoice & {
@@ -88,12 +89,12 @@ export type UnpaidInvoice = BaseInvoice & {
 export type PaidInvoice = BaseInvoice & {
   type: 'paid';
   paidBy: string;
-  paidAt: string;
+  paidAt: number;
 };
 
 export type SentInvoice = BaseInvoice & {
   type: 'sent';
   sentBy: string;
-  sentAt: string;
+  sentAt: number;
   status: 'paid' | 'sent' | 'overdue';
 };

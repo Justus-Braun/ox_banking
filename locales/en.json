@@ -1,5 +1,6 @@
 {
   "locale_code": "en-US",
+  "date_format": "yyyy/MM/dd HH:mm",
   "currency": "USD",
   "bank": "Bank",
   "target_access_bank": "Access bank",
@@ -23,6 +24,13 @@
   "day_friday": "Fri",
   "day_saturday": "Sat",
   "day_sunday": "Sun",
+  "monday": "Monday",
+  "tuesday": "Tuesday",
+  "wednesday": "Wednesday",
+  "thursday": "Thursday",
+  "friday": "Friday",
+  "saturday": "Saturday",
+  "sunday": "Sunday",
   "income": "Income",
   "expenses": "Expenses",
   "recent_transactions": "Recent transactions",
@@ -144,6 +152,7 @@
   "permission_closeAccount": "Close account",
   "permission_sendInvoice": "Send invoice",
   "permission_payInvoice": "Pay invoice",
+  "transfer_from": "Transfer from",
   "access_atm":  "ATM öffnen",
   "access_bank":  "Bank öffnen",
   "rob_atm": "ATM ausrauben"
