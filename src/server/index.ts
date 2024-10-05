@@ -1,6 +1,11 @@
+import type { OxAccountRole, OxAccountUserMetadata } from '@overextended/ox_core';
+import { CreateAccount, GetAccount, GetCharacterAccount, GetPlayer } from '@overextended/ox_core/server';
 import { onClientCallback } from '@overextended/ox_lib/server';
+import { oxmysql } from '@overextended/oxmysql';
+import type { DateRange } from 'react-day-picker';
 import type {
   AccessTableData,
+  AccessTableUser,
   Account,
   DashboardData,
   Invoice,
@@ -9,15 +14,11 @@ import type {
   RawLogItem,
   Transaction,
 } from '../common/typings';
-import { oxmysql } from '@overextended/oxmysql';
-import { GetPlayer, GetAccount, GetCharacterAccount, CreateAccount } from '@overextended/ox_core/server';
-import type { DateRange } from 'react-day-picker';
-import type { OxAccountRole, OxAccountUserMetadata } from '@overextended/ox_core';
 
 onClientCallback('ox_banking:getAccounts', async (playerId): Promise<Account[]> => {
   const player = GetPlayer(playerId);
 
-  if (!player) return;
+  if (!player.charId) return;
 
   const accessAccounts = await oxmysql.rawExecute<OxAccountUserMetadata[]>(
     `
@@ -49,9 +50,12 @@ onClientCallback('ox_banking:getAccounts', async (playerId): Promise<Account[]> 
         )
       )
     GROUP BY
-      account.id;
+      account.id
+    ORDER BY
+      account.owner = ? DESC,
+      account.isDefault DESC
     `,
-    [player.charId, player.charId, player.charId]
+    [player.charId, player.charId, player.charId, player.charId]
   );
 
   const accounts: Account[] = accessAccounts.map((account) => ({
@@ -74,6 +78,8 @@ onClientCallback('ox_banking:createAccount', async (playerId, { name, shared }: 
   if (!charId) return;
 
   const account = await CreateAccount(charId, name);
+
+  if (shared) await account.setShared();
 
   return account.accountId;
 });
@@ -105,16 +111,12 @@ interface TransferBalance {
 
 onClientCallback('ox_banking:depositMoney', async (playerId, { accountId, amount }: UpdateBalance) => {
   const account = await GetAccount(accountId);
-  const response = await account.depositMoney(playerId, amount);
-  //@todo notify
-  return response === true;
+  return await account.depositMoney(playerId, amount);
 });
 
 onClientCallback('ox_banking:withdrawMoney', async (playerId, { accountId, amount }: UpdateBalance) => {
   const account = await GetAccount(accountId);
-  const response = await account.withdrawMoney(playerId, amount);
-  //@todo notify
-  return response === true;
+  return await account.withdrawMoney(playerId, amount);
 });
 
 onClientCallback(
@@ -128,16 +130,24 @@ onClientCallback(
     const targetAccountId =
       transferType === 'account' ? (target as number) : (await GetCharacterAccount(target))?.accountId;
 
-    if (targetAccountId) {
-      const player = GetPlayer(playerId);
-      const response = await account.transferBalance({
-        toId: targetAccountId,
-        amount: amount,
-        actorId: player.charId,
-      });
-      //@todo notify
-      return response === true;
-    }
+    if (transferType === 'person' && !targetAccountId)
+      return {
+        success: false,
+        message: 'state_id_not_exists',
+      };
+
+    if (!targetAccountId)
+      return {
+        success: false,
+        message: 'account_id_not_exists',
+      };
+
+    const player = GetPlayer(playerId);
+    return await account.transferBalance({
+      toId: targetAccountId,
+      amount: amount,
+      actorId: player.charId,
+    });
   }
 );
 
@@ -234,27 +244,76 @@ onClientCallback(
     if (!hasPermission) return;
 
     const wildcard = sanitizeSearch(search);
+    let searchStr = '';
 
-    const users = await oxmysql.rawExecute<AccessTableData['users']>(
-      `
+    const accountGroup = await account.get('group');
+
+    const queryParams: any[] = [accountId];
+
+    if (wildcard) {
+      searchStr += 'AND MATCH(c.fullName) AGAINST (? IN BOOLEAN MODE)';
+      queryParams.push(wildcard);
+    }
+
+    if (accountGroup) {
+      const params: any[] = [accountGroup];
+
+      const usersQuery = `
+        SELECT c.stateId, c.fullName AS name, gg.accountRole AS role FROM character_groups cg
+        LEFT JOIN accounts a ON cg.name = a.group
+        LEFT JOIN characters c ON c.charId = cg.charId
+        LEFT JOIN ox_group_grades gg ON (cg.name = gg.group AND cg.grade = gg.grade)
+        WHERE cg.name = ? ${searchStr}
+        ORDER BY role DESC
+        LIMIT 12
+        OFFSET ?
+      `;
+
+      const countQuery = `
+        SELECT COUNT(*) FROM character_groups cg
+        LEFT JOIN accounts a ON cg.name = a.group
+        LEFT JOIN characters c ON c.charId = cg.charId
+        LEFT JOIN ox_group_grades gg ON (cg.name = gg.group AND cg.grade = gg.grade)
+        WHERE cg.name = ?
+      `;
+
+      const count = await oxmysql.prepare(countQuery, params);
+
+      if (wildcard) params.push(wildcard);
+      params.push(page * 12);
+
+      const users = await oxmysql.rawExecute<AccessTableUser[]>(usersQuery, params);
+
+      return {
+        numberOfPages: count,
+        users,
+      };
+    }
+
+    const usersCount = await oxmysql.prepare<number>(
+      `SELECT COUNT(*) FROM \`accounts_access\` aa LEFT JOIN characters c ON c.charId = aa.charId WHERE accountId = ? ${searchStr}`,
+      queryParams
+    );
+
+    queryParams.push(page * 12);
+
+    const users = usersCount
+      ? await oxmysql.rawExecute<AccessTableData['users']>(
+          `
       SELECT c.stateId, a.role, c.fullName AS \`name\` FROM \`accounts_access\` a
       LEFT JOIN \`characters\` c ON c.charId = a.charId
       WHERE a.accountId = ?
-      AND MATCH(c.fullName) AGAINST (? IN BOOLEAN MODE)
+      ${searchStr}
       ORDER BY a.role DESC
-      LIMIT 7
+      LIMIT 12
       OFFSET ?
       `,
-      [accountId, wildcard, page * 7]
-    );
-
-    const usersCount = await oxmysql.prepare<number>(
-      'SELECT COUNT(*) FROM `accounts_access` aa LEFT JOIN characters c ON c.charId = aa.charId WHERE accountId = ? AND MATCH(c.fullName) AGAINST (? IN BOOLEAN MODE)',
-      [accountId, wildcard]
-    );
+          queryParams
+        )
+      : [];
 
     return {
-      numberOfPages: Math.ceil(usersCount / 7),
+      numberOfPages: Math.ceil(usersCount / 12) || 1,
       users,
     };
   }
@@ -279,11 +338,11 @@ onClientCallback(
 
     if (!hasPermission) return false;
 
-    const validId = await oxmysql.prepare('SELECT 1 FROM `characters` WHERE `stateId` = ?', [stateId]);
+    const currentRole = account.getCharacterRole(stateId);
 
-    if (!validId) return 'state_id_not_exists';
+    if (currentRole) return { success: false, message: 'invalid_input' };
 
-    return await account.setCharacterRole(stateId, role);
+    return (await account.setCharacterRole(stateId, role)) || { success: false, message: 'state_id_not_exists' };
   }
 );
 
@@ -333,24 +392,40 @@ onClientCallback(
       targetStateId: string;
       accountId: number;
     }
-  ): Promise<true | 'state_id_not_exists'> => {
+  ): Promise<{ success: boolean; message?: string }> => {
     const account = await GetAccount(accountId);
     const hasPermission = await account?.playerHasPermission(playerId, 'transferOwnership');
 
-    if (!hasPermission) return;
+    if (!hasPermission)
+      return {
+        success: false,
+        message: 'no_permission',
+      };
 
     const targetCharId = await oxmysql.prepare<number | null>('SELECT `charId` FROM `characters` WHERE `stateId` = ?', [
       targetStateId,
     ]);
 
-    if (!targetCharId) return 'state_id_not_exists';
+    if (!targetCharId)
+      return {
+        success: false,
+        message: 'state_id_not_exists',
+      };
+
+    const accountOwner = await account.get('owner');
+
+    if (accountOwner === targetCharId)
+      return {
+        success: false,
+        message: 'invalid_input',
+      };
+
+    const player = GetPlayer(playerId);
 
     await oxmysql.prepare(
       "INSERT INTO `accounts_access` (`accountId`, `charId`, `role`) VALUES (?, ?, 'owner') ON DUPLICATE KEY UPDATE `role` = 'owner'",
       [accountId, targetCharId]
     );
-
-    const player = GetPlayer(playerId);
 
     await oxmysql.prepare('UPDATE `accounts` SET `owner` = ? WHERE `id` = ?', [targetCharId, accountId]);
     await oxmysql.prepare("UPDATE `accounts_access` SET `role` = 'manager' WHERE `accountId` = ? AND `charId` = ?", [
@@ -358,7 +433,9 @@ onClientCallback(
       player.charId,
     ]);
 
-    return true;
+    return {
+      success: true,
+    };
   }
 );
 
@@ -379,7 +456,7 @@ onClientCallback(
 onClientCallback('ox_banking:convertAccountToShared', async (playerId, { accountId }: { accountId: number }) => {
   const player = GetPlayer(playerId);
 
-  if (!player) return;
+  if (!player.charId) return;
 
   const account = await GetAccount(accountId);
 
@@ -403,7 +480,7 @@ onClientCallback(
     const search = sanitizeSearch(filters.search);
 
     let dateSearchString = '';
-    let queryParams: any[] = [accountId, accountId, accountId, accountId];
+    let queryParams: any[] = [accountId, accountId, accountId, accountId, accountId, accountId, accountId, accountId];
 
     let typeQueryString = ``;
 
@@ -444,8 +521,8 @@ onClientCallback(
             at.toId,
             at.message,
             at.amount,
-            CONCAT(fa.id, ' - ', fa.label) AS fromAccountLabel,
-            CONCAT(ta.id, ' - ', ta.label) AS toAccountLabel,
+            CONCAT(fa.id, ' - ', IFNULL(cf.fullName, ogf.label)) AS fromAccountLabel,
+            CONCAT(ta.id, ' - ', IFNULL(ct.fullName, ogt.label)) AS toAccountLabel,
             UNIX_TIMESTAMP(at.date) AS date,
             c.fullName AS name,
             CASE
@@ -460,6 +537,10 @@ onClientCallback(
           LEFT JOIN characters c ON c.charId = at.actorId
           LEFT JOIN accounts ta ON ta.id = at.toId
           LEFT JOIN accounts fa ON fa.id = at.fromId
+          LEFT JOIN characters ct ON (ta.owner IS NOT NULL AND at.fromId = ? AND ct.charId = ta.owner)
+          LEFT JOIN characters cf ON (fa.owner IS NOT NULL AND at.toId = ? AND cf.charId = fa.owner)
+          LEFT JOIN ox_groups ogt ON (ta.owner IS NULL AND at.fromId = ? AND ogt.name = ta.group)
+          LEFT JOIN ox_groups ogf ON (fa.owner IS NULL AND at.toId = ? AND ogf.name = fa.group)
           ${queryWhere}
           ORDER BY at.id DESC
           LIMIT 6
@@ -469,8 +550,6 @@ onClientCallback(
       )
       .catch((e) => console.log(e));
 
-    console.log(JSON.stringify(queryData, null, 2));
-
     const totalLogsCount = await oxmysql
       .prepare(
         `
@@ -479,15 +558,15 @@ onClientCallback(
           LEFT JOIN characters c ON c.charId = at.actorId
           LEFT JOIN accounts ta ON ta.id = at.toId
           LEFT JOIN accounts fa ON fa.id = at.fromId
+          LEFT JOIN characters ct ON (ta.owner IS NOT NULL AND at.fromId = ? AND ct.charId = ta.owner)
+          LEFT JOIN characters cf ON (fa.owner IS NOT NULL AND at.toId = ? AND cf.charId = fa.owner)
+          LEFT JOIN ox_groups ogt ON (ta.owner IS NULL AND at.fromId = ? AND ogt.name = ta.group)
+          LEFT JOIN ox_groups ogf ON (fa.owner IS NULL AND at.toId = ? AND ogf.name = fa.group)
           ${queryWhere}
         `,
         countQueryParams
       )
       .catch((e) => console.log(e));
-
-    console.log(totalLogsCount);
-
-    console.log(Math.ceil(totalLogsCount / 6));
 
     return {
       numberOfPages: Math.ceil(totalLogsCount / 6),
@@ -530,14 +609,18 @@ onClientCallback(
         queryJoins = `
         LEFT JOIN accounts a ON ai.fromAccount = a.id
         LEFT JOIN characters c ON ai.actorId = c.charId
+        LEFT JOIN characters co ON (a.owner IS NOT NULL AND co.charId = a.owner)
+        LEFT JOIN ox_groups g ON (a.owner IS NULL AND g.name = a.group)
       `;
 
         query = `
           SELECT
             ai.id,
-            a.label,
+            c.fullName as sentBy,
+            CONCAT(a.id, ' - ', IFNULL(co.fullName, g.label)) AS label,
             ai.amount,
             ai.message,
+            UNIX_TIMESTAMP(ai.sentAt) AS sentAt,
             UNIX_TIMESTAMP(ai.dueDate) as dueDate,
             'unpaid' AS type
           FROM accounts_invoices ai
@@ -558,15 +641,20 @@ onClientCallback(
         queryJoins = `
         LEFT JOIN accounts a ON ai.fromAccount = a.id
         LEFT JOIN characters c ON ai.payerId = c.charId
+        LEFT JOIN characters ca ON ai.actorId = ca.charId
+        LEFT JOIN characters co ON (a.owner IS NOT NULL AND co.charId = a.owner)
+        LEFT JOIN ox_groups g ON (a.owner IS NULL AND g.name = a.group)
       `;
 
         query = `
         SELECT
           ai.id,
           c.fullName as paidBy,
-          a.label,
+          ca.fullName as sentBy,
+          CONCAT(a.id, ' - ', IFNULL(co.fullName, g.label)) AS label,
           ai.amount,
           ai.message,
+          UNIX_TIMESTAMP(ai.sentAt) AS sentAt,
           UNIX_TIMESTAMP(ai.dueDate) AS dueDate,
           UNIX_TIMESTAMP(ai.paidAt) AS paidAt,
           'paid' AS type
@@ -588,13 +676,15 @@ onClientCallback(
         queryJoins = `
         LEFT JOIN accounts a ON ai.toAccount = a.id
         LEFT JOIN characters c ON ai.actorId = c.charId
+        LEFT JOIN characters co ON (a.owner IS NOT NULL AND co.charId = a.owner)
+        LEFT JOIN ox_groups g ON (a.owner IS NULL AND g.name = a.group)
       `;
 
         query = `
         SELECT
           ai.id,
           c.fullName as sentBy,
-          a.label,
+          CONCAT(a.id, ' - ', IFNULL(co.fullName, g.label)) AS label,
           ai.amount,
           ai.message,
           UNIX_TIMESTAMP(ai.sentAt) AS sentAt,
@@ -661,8 +751,6 @@ onClientCallback('ox_banking:payInvoice', async (playerId, data: { invoiceId: nu
   const player = GetPlayer(playerId);
 
   if (!player.charId) return;
-
-  // todo?: maybe a notification for successful payment?
 
   return await player.payInvoice(data.invoiceId);
 });

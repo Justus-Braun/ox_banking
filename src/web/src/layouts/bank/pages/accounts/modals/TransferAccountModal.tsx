@@ -1,19 +1,15 @@
-import React from 'react';
-import * as z from 'zod';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import locales from '@/locales';
-import { Input } from '@/components/ui/input';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Button } from '@/components/ui/button';
-import SpinningLoader from '@/components/SpinningLoader';
-import { fetchNui } from '@/utils/fetchNui';
 import { useModal } from '@/components/ModalsProvider';
-import { useSetActiveAccountId } from '@/state/accounts';
-import { queryClient } from '@/main';
-import { Account } from '~/src/common/typings';
-import { updateAccountProperty } from '@/state/accounts';
+import SpinningLoader from '@/components/SpinningLoader';
+import { Button } from '@/components/ui/button';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import locales from '@/locales';
+import { updateAccountProperty, useSetActiveAccountId } from '@/state/accounts';
+import { fetchNui } from '@/utils/fetchNui';
+import { zodResolver } from '@hookform/resolvers/zod';
+import React from 'react';
+import { useForm } from 'react-hook-form';
+import * as z from 'zod';
 
 const TransferAccountModal: React.FC<{ accountId: number }> = ({ accountId }) => {
   const [isLoading, setIsLoading] = React.useState(false);
@@ -38,20 +34,24 @@ const TransferAccountModal: React.FC<{ accountId: number }> = ({ accountId }) =>
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
 
-    const resp = await fetchNui<true | 'state_id_not_exists'>(
+    const resp = await fetchNui<{ success: boolean; message?: string }>(
       'transferOwnership',
       {
         accountId,
         targetStateId: values.stateId,
       },
-      { data: true, delay: 1500 }
+      {
+        data: {
+          success: true,
+        },
+        delay: 1500,
+      }
     );
 
-    console.log(resp);
-
-    if (typeof resp === 'string') {
+    if (!resp.success) {
       setIsLoading(false);
-      form.setError('stateId', { type: 'value', message: locales[resp] });
+
+      form.setError('stateId', { type: 'value', message: locales[resp.message as keyof typeof locales] });
 
       return;
     }
@@ -70,7 +70,7 @@ const TransferAccountModal: React.FC<{ accountId: number }> = ({ accountId }) =>
         <FormField
           render={({ field }) => (
             <FormItem>
-              <FormLabel>Transfer to</FormLabel>
+              <FormLabel>{locales.transfer_to}</FormLabel>
               <FormControl>
                 <Input {...field} placeholder={locales.state_id} />
               </FormControl>
@@ -79,7 +79,7 @@ const TransferAccountModal: React.FC<{ accountId: number }> = ({ accountId }) =>
           )}
           name="stateId"
         />
-        <p className="text-destructive text-sm">This action is irreversible.</p>
+        <p className="text-destructive text-sm">{locales.action_irreversible}</p>
         <Button type="submit" className="self-end" variant="destructive" disabled={isLoading}>
           {isLoading ? <SpinningLoader /> : locales.transfer_ownership}
         </Button>

@@ -3,6 +3,7 @@ import { atomsWithQuery } from 'jotai-tanstack-query';
 import { Account } from '@/typings';
 import { queryClient } from '@/main';
 import { fetchNui } from '@/utils/fetchNui';
+import { delay } from '../../utils/misc';
 
 const DEBUG_ACCOUNTS: Account[] = [
   {
@@ -19,7 +20,7 @@ const DEBUG_ACCOUNTS: Account[] = [
     label: 'Some name',
     owner: 'Some owner',
     type: 'shared',
-    role: 'viewer',
+    role: 'owner',
   },
   {
     id: 932124,
@@ -44,6 +45,11 @@ const [accountsDataAtom] = atomsWithQuery<{ numberOfPages: number; accounts: Acc
 
       const defaultAccount = accounts.find((account) => account.isDefault)!;
 
+      await delay(500);
+
+      console.log(accounts.length + 1);
+      console.log((accounts.length + 1) / 4);
+
       return {
         accounts: defaultAccount ? [defaultAccount, ...accounts.filter((account) => !account.isDefault)] : accounts,
         numberOfPages: Math.ceil((accounts.length + 1) / 4),
@@ -60,6 +66,8 @@ const activeAccountAtom = atom<Promise<Account | null>>(async (get) => {
   const { accounts } = await get(accountsDataAtom);
 
   if (!accounts || accounts.length === 0) return null;
+
+  await delay(500);
 
   return accounts.find((account) => account.id === accountId) || null;
 });

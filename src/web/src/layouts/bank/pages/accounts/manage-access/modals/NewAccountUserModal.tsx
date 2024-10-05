@@ -1,18 +1,19 @@
-import React from 'react';
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import locales from '@/locales';
-import { formatNumber } from '@/utils/formatNumber';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import SpinningLoader from '@/components/SpinningLoader';
-import { useForm } from 'react-hook-form';
-import * as z from 'zod';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useModal } from '@/components/ModalsProvider';
-import { fetchNui } from '@/utils/fetchNui';
+import SpinningLoader from '@/components/SpinningLoader';
+import { Button } from '@/components/ui/button';
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import locales from '@/locales';
 import { queryClient } from '@/main';
 import permissions from '@/permissions';
+import { AccountRole } from '@/typings';
+import { fetchNui } from '@/utils/fetchNui';
+import { zodResolver } from '@hookform/resolvers/zod';
+import React from 'react';
+import { useForm } from 'react-hook-form';
+import * as z from 'zod';
+import RolePermissions from '../components/RolePermissions';
 
 const NewAccountUserModal: React.FC<{ accountId: number }> = ({ accountId }) => {
   const modal = useModal();
@@ -33,21 +34,23 @@ const NewAccountUserModal: React.FC<{ accountId: number }> = ({ accountId }) => 
     },
   });
 
+  const role = form.watch('role') as AccountRole;
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     setIsLoading(true);
 
-    const resp = await fetchNui<true | keyof typeof locales>(
+    const resp = await fetchNui<{ success: boolean; message?: string }>(
       'addUserToAccount',
       { accountId, ...values },
       {
-        data: true,
+        data: { success: true },
         delay: 1500,
       }
     );
 
-    if (typeof resp === 'string') {
+    if (!resp.success) {
       setIsLoading(false);
-      form.setError('stateId', { type: 'value', message: locales[resp] });
+      form.setError('stateId', { type: 'value', message: locales[resp.message as keyof typeof locales] });
 
       return;
     }
@@ -58,7 +61,10 @@ const NewAccountUserModal: React.FC<{ accountId: number }> = ({ accountId }) => 
     modal.close();
   }
 
-  const roles = React.useMemo(() => Object.keys(permissions).filter((role) => role !== 'owner'), [permissions]);
+  const roles = React.useMemo(
+    () => Object.keys(permissions).filter((role): role is keyof typeof locales => role !== 'owner'),
+    [permissions]
+  );
 
   return (
     <Form {...form}>
@@ -87,29 +93,14 @@ const NewAccountUserModal: React.FC<{ accountId: number }> = ({ accountId }) => 
                   <SelectContent>
                     {roles.map((role) => (
                       <SelectItem key={role} value={role}>
-                        {/*@ts-expect-error*/}
-                        {locales[role]}
+                        {locales[role as keyof typeof locales]}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </FormControl>
               <FormDescription className="flex flex-col gap-2">
-                {roles.map((role) => (
-                  <p>
-                    {Object.values(permissions[role]).filter((value) => value === 1).length > 0 ? (
-                      // @ts-expect-error
-                      <>{locales[role]} - </>
-                    ) : (
-                      <></>
-                    )}
-                    {Object.entries(permissions[role])
-                      .filter(([permission, value]) => value === 1)
-                      // @ts-expect-error
-                      .map(([permission, value]) => (value ? locales[`permission_${permission}`] : undefined))
-                      .join(', ')}
-                  </p>
-                ))}
+                <RolePermissions role={role} />
               </FormDescription>
             </FormItem>
           )}

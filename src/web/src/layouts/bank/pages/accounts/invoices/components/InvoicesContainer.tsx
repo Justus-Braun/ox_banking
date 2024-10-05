@@ -1,19 +1,19 @@
+import Pagination from '@/layouts/bank/components/Pagination';
+import { queryClient } from '@/main';
+import {
+  useDebouncedInvoicesFilters,
+  useInvoicesFilters,
+  useIsInvoicesFiltersDebouncing,
+  useSetInvoicesFiltersDebounce,
+} from '@/state/accounts/invoices';
+import { fetchNui } from '@/utils/fetchNui';
+import { useQuery } from '@tanstack/react-query';
 import React from 'react';
-import UnpaidInvoicesContainer from './UnpaidInvoicesContainer';
+import { PaidInvoice, SentInvoice, UnpaidInvoice } from '~/src/common/typings';
 import PaidInvoicesContainer from './PaidInvoicesContainer';
 import SentInvoicesContainer from './SentInvoicesContainer';
-import {
-  useInvoicesFilters,
-  useSetInvoicesFiltersDebounce,
-  useDebouncedInvoicesFilters,
-} from '@/state/accounts/invoices';
-import Pagination from '@/layouts/bank/components/Pagination';
-import { useQuery } from '@tanstack/react-query';
-import { queryClient } from '@/main';
-import { PaidInvoice, SentInvoice, UnpaidInvoice } from '~/src/common/typings';
-import { fetchNui } from '@/utils/fetchNui';
-import { useIsInvoicesFiltersDebouncing } from '@/state/accounts/invoices';
 import SkeletonInvoices from './SkeletonInvoices';
+import UnpaidInvoicesContainer from './UnpaidInvoicesContainer';
 
 const InvoicesContainer: React.FC<{ accountId: number }> = ({ accountId }) => {
   const debouncedFilters = useDebouncedInvoicesFilters();
@@ -45,7 +45,8 @@ const InvoicesContainer: React.FC<{ accountId: number }> = ({ accountId }) => {
                   label: 'SomeOtherAccount LLC',
                   message: 'Bill',
                   amount: 3000,
-                  dueDate: '2024/08/28 13:00',
+                  dueDate: Date.now(),
+                  sentAt: Date.now(),
                 },
                 {
                   id: 1,
@@ -53,7 +54,8 @@ const InvoicesContainer: React.FC<{ accountId: number }> = ({ accountId }) => {
                   label: 'SomeOtherAccount LLC',
                   message: 'Bill',
                   amount: 3000,
-                  dueDate: '2024/08/28 13:00',
+                  dueDate: Date.now(),
+                  sentAt: Date.now(),
                 },
               ] satisfies UnpaidInvoice[],
             },

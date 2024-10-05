@@ -5,17 +5,25 @@ import CreateAccountModal from '@/layouts/bank/pages/accounts/modals/CreateAccou
 import AccountCard from '@/layouts/bank/pages/accounts/components/AccountCard';
 import BaseCard from '@/layouts/bank/components/BaseCard';
 import { useModal } from '@/components/ModalsProvider';
-import { useAccounts, useActiveAccount, useActiveAccountId } from '@/state/accounts';
+import { useAccounts, useActiveAccountId } from '@/state/accounts';
 import { cn } from '@/lib/utils';
 import locales from '@/locales';
+import { useSetActiveAccountId } from '@/state/accounts';
 
 const CharacterAccounts: React.FC = () => {
   const modal = useModal();
   const accountsData = useAccounts();
   const activeAccountId = useActiveAccountId();
+  const setActiveAccountId = useSetActiveAccountId();
   const [page, setPage] = React.useState(0);
 
-  const MAX_ITEMS = React.useMemo(() => (page === 0 ? 3 : 4), [page]);
+  React.useEffect(() => {
+    if (activeAccountId) return;
+
+    const defaultAccount = accountsData.accounts.find((account) => account.isDefault);
+
+    if (defaultAccount) setActiveAccountId(defaultAccount.id);
+  }, [accountsData, activeAccountId]);
 
   return (
     <BaseCard title={locales.accounts} icon={CreditCard} className="overflow-visible">
@@ -38,7 +46,7 @@ const CharacterAccounts: React.FC = () => {
             </div>
           )}
           {accountsData.accounts
-            .slice(page * (MAX_ITEMS === 3 ? MAX_ITEMS : MAX_ITEMS - 1), page * MAX_ITEMS + MAX_ITEMS)
+            .slice(page === 0 ? 0 : page * 4 - 1, page === 0 ? 3 : page * 4 + 4 - 1)
             .map((account) => (
               <AccountCard
                 key={`${account.id}-${account.balance}`}

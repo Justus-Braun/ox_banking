@@ -4,18 +4,20 @@ import { useAccessTableFilters, useSetAccessTableFiltersDebounce } from '@/state
 import locales from '@/locales';
 import { SearchIcon } from 'lucide-react';
 
-const AccessTableSearch: React.FC = () => {
+const ManageAccessSearch: React.FC = () => {
   const value = useAccessTableFilters();
   const setDebounce = useSetAccessTableFiltersDebounce();
 
   return (
-    <Input
-      placeholder={locales.search_names}
-      value={value.search}
-      onChange={(e) => setDebounce({ search: e.target.value, page: 0 })}
-      startIcon={SearchIcon}
-    />
+    <div className="w-full">
+      <Input
+        placeholder={locales.search_names}
+        value={value.search}
+        onChange={(e) => setDebounce({ search: e.target.value, page: 0 })}
+        startIcon={SearchIcon}
+      />
+    </div>
   );
 };
 
-export default AccessTableSearch;
+export default ManageAccessSearch;

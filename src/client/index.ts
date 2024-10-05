@@ -1,3 +1,5 @@
+
+import { Config, LoadJsonFile, Locale } from '@common/.';
 import type { Character } from '../common/typings';
 import targets from '../../data/targets.json';
 import locations from '../../data/locations.json';
@@ -5,9 +7,10 @@ import atms from '../../data/atms.json';
 import { hideTextUI } from '@overextended/ox_lib/client';
 import { SendTypedNUIMessage, serverNuiCallback } from 'utils';
 import { getLocales, locale } from '@overextended/ox_lib/shared';
-
 import { OxAccountPermissions, OxAccountRole } from '@overextended/ox_core';
-
+import { cache, getLocales, hideTextUI, requestAnimDict, sleep, waitFor } from '@overextended/ox_lib/client';
+import type { Character } from '../common/typings';
+import { SendTypedNUIMessage, serverNuiCallback } from './utils';
 import {initLocale} from '@overextended/ox_lib/shared'
 import { OxAccountPermissions, OxAccountRoles } from '@overextended/ox_core';
 import { Vector3 } from '@nativewrappers/client';
@@ -18,19 +21,23 @@ let hasLoadedUi = false;
 let isUiOpen = false;
 let isATMopen = false;
 
-initLocale()
+function canOpenUi() {
+  return IsPedOnFoot(cache.ped);
+}
 
-function initUI() {
+function setupUi() {
+  initLocale()
+
   if (hasLoadedUi) return;
 
   const accountRoles: OxAccountRole[] = GlobalState.accountRoles;
-
-  // @ts-expect-error
-  const permissions: Record<OxAccountRoles, OxAccountPermissions> = {};
-
-  accountRoles.forEach((role) => {
-    permissions[role] = GlobalState[`accountRole.${role}`] as OxAccountPermissions;
-  });
+  const permissions = accountRoles.reduce(
+    (acc, role) => {
+      acc[role] = GlobalState[`accountRole.${role}`] as OxAccountPermissions;
+      return acc;
+    },
+    {} as Record<OxAccountRole, OxAccountPermissions>
+  );
 
   SendNUIMessage({
     action: 'setInitData',
@@ -43,20 +50,40 @@ function initUI() {
   hasLoadedUi = true;
 }
 
-const openATM = () => {
-  initUI();
+const openAtm = async ({ entity }: { entity: number }) => {
+  if (!canOpenUi) return;
+
+  const atmEnter = await requestAnimDict('mini@atmenter');
+  const [x, y, z] = GetOffsetFromEntityInWorldCoords(entity, 0, -0.7, 1);
+  const heading = GetEntityHeading(entity);
+  const sequence = OpenSequenceTask(0) as unknown as number;
+
+  TaskGoStraightToCoord(0, x, y, z, 1.0, 5000, heading, 0.25);
+  TaskPlayAnim(0, atmEnter, 'enter', 4.0, -2.0, 1600, 0, 0.0, false, false, false);
+  CloseSequenceTask(sequence);
+  TaskPerformSequence(cache.ped, sequence);
+  ClearSequenceTask(sequence);
+  setupUi();
+
+  await sleep(0);
+  await waitFor(() => GetSequenceProgress(cache.ped) === -1 || undefined, '', false);
+
+  PlaySoundFrontend(-1, 'PIN_BUTTON', 'ATM_SOUNDS', true);
 
   isUiOpen = true;
   isATMopen = true;
 
   SendTypedNUIMessage('openATM', null);
   SetNuiFocus(true, true);
+  RemoveAnimDict(atmEnter);
 };
 
-exports('openATM', openATM);
+exports('openAtm', openAtm);
 
 const openBank = () => {
-  initUI();
+  if (!canOpenUi) return;
+
+  setupUi();
 
   const playerCash: number = exports.ox_inventory.GetItemCount('money');
   isUiOpen = true;
@@ -68,22 +95,25 @@ const openBank = () => {
 };
 
 exports('openBank', openBank);
+AddTextEntry('ox_banking_bank', Locale('bank'));
 
-const createBankBlip = (coords: number[]) => {
-  const blip = AddBlipForCoord(coords[0], coords[1], coords[2]);
-  SetBlipSprite(blip, 207);
-  SetBlipColour(blip, 2);
+const createBankBlip = ([x, y, z]: number[]) => {
+  const { sprite, colour, scale } = Config.BankBlip;
+
+  if (!sprite) return;
+
+  const blip = AddBlipForCoord(x, y, z);
+  SetBlipSprite(blip, sprite);
+  SetBlipColour(blip, colour);
+  SetBlipScale(blip, scale);
   SetBlipAsShortRange(blip, true);
-  BeginTextCommandSetBlipName('STRING');
-  AddTextComponentString(locale('bank'));
+  BeginTextCommandSetBlipName('ox_banking_bank');
   EndTextCommandSetBlipName(blip);
 };
 
-if (!usingTarget) {
-  for (let i = 0; i < locations.length; i++) createBankBlip(locations[i]);
-}
+const banks = LoadJsonFile<typeof import('~/data/banks.json')>('data/banks.json');
 
-if (usingTarget) {
+if (Config.UseOxTarget) {
   exports.sleepless_interact.addGlobalModel({
     models: [
       {model: "prop_fleeca_atm", offset: new Vector3(0, 0, 1.0)},
@@ -113,9 +143,14 @@ if (usingTarget) {
     }
   );
 
-  for (let i = 0; i < targets.length; i++) {
-    const target = targets[i];
-
+  const bankOptions = {
+    name: 'access_bank',
+    icon: 'fa-solid fa-dollar-sign',
+    label: Locale('target_access_bank'),
+    onSelect: openBank,
+    distance: 1.3,
+  };
+  
     exports.sleepless_interact.addCoords({
       id: 'access_bank',
       coords: [
@@ -145,17 +180,16 @@ if (usingTarget) {
       ],
     });
 
-    createBankBlip(target.coords);
-  }
-}
+    createBankBlip(bank.coords);
+  });
+} else banks.forEach(({ coords }) => createBankBlip(coords));
 
-RegisterNuiCallback('exit', (_: any, cb: Function) => {
-  isUiOpen = false;
-  isATMopen = false;
-
+RegisterNuiCallback('exit', async (_: any, cb: Function) => {
+  cb(1);
   SetNuiFocus(false, false);
 
-  cb(1);
+  isUiOpen = false;
+  isATMopen = false;
 });
 
 on('ox_inventory:itemCount', (itemName: string, count: number) => {
