@@ -1,9 +1,6 @@
 
 import { Config, LoadJsonFile, Locale } from '@common/.';
 import type { Character } from '../common/typings';
-import targets from '../../data/targets.json';
-import locations from '../../data/locations.json';
-import atms from '../../data/atms.json';
 import { hideTextUI } from '@overextended/ox_lib/client';
 import { SendTypedNUIMessage, serverNuiCallback } from 'utils';
 import { getLocales, locale } from '@overextended/ox_lib/shared';
@@ -127,14 +124,14 @@ if (Config.UseOxTarget) {
           icon: 'fa-solid fa-money-check',
           label: locale('access_atm'),
           onSelect: (id: string | number, entity?: number, coords: Vector3, distance: number) => {
-            openATM();
+            openAtm({ entity });
           },
         },
         {
           icon: 'fa-solid fa-sack-dollar',
           label: locale('rob_atm'),
           onSelect: (id: string | number, entity?: number, coords: Vector3, distance: number) => {
-            openATM();
+            openAtm({ entity });
           },
         },
       ],
@@ -151,38 +148,35 @@ if (Config.UseOxTarget) {
     distance: 1.3,
   };
   
-    exports.sleepless_interact.addCoords({
-      id: 'access_bank',
-      coords: [
-        new Vector3(149.7474, -1041.4419, 29.7),
-        new Vector3(421.4, 567.8, 125.0),
-        new Vector3(314.0676, -279.6146, 54.43),
-        new Vector3(-351.0613, -50.4046, 49.30),
-        new Vector3(-1212.3430, -331.1905, 38.05),
-        new Vector3(248.485, 223.2904, 106.4085),
-        new Vector3(-2962.0, 482.9439, 15.9852),
-        new Vector3(1174.9997, 2707.3660, 38.4),
-        new Vector3(-111.7381, 6469.452, 31.9485),
-      ],
-      // size: target.size,
-      // rotation: target.rotation,
-      // debug: true,
-      renderDistance: 5.0,
-      activeDistance: 1.3,
-      options: [
-        {
-          icon: 'fa-solid fa-dollar-sign',
-          label: locale('access_bank'),
-          onSelect: (id: string | number, entity?: number, coords: Vector3, distance: number) => {
-            openBank();
-          },
+  exports.sleepless_interact.addCoords({
+    id: 'access_bank',
+    coords: [
+      new Vector3(149.7474, -1041.4419, 29.7),
+      new Vector3(421.4, 567.8, 125.0),
+      new Vector3(314.0676, -279.6146, 54.43),
+      new Vector3(-351.0613, -50.4046, 49.30),
+      new Vector3(-1212.3430, -331.1905, 38.05),
+      new Vector3(248.485, 223.2904, 106.4085),
+      new Vector3(-2962.0, 482.9439, 15.9852),
+      new Vector3(1174.9997, 2707.3660, 38.4),
+      new Vector3(-111.7381, 6469.452, 31.9485),
+    ],
+    // size: target.size,
+    // rotation: target.rotation,
+    // debug: true,
+    renderDistance: 5.0,
+    activeDistance: 1.3,
+    options: [
+      {
+        icon: 'fa-solid fa-dollar-sign',
+        label: locale('access_bank'),
+        onSelect: (id: string | number, entity?: number, coords: Vector3, distance: number) => {
+          openBank();
         },
-      ],
-    });
-
-    createBankBlip(bank.coords);
+      },
+    ],
   });
-} else banks.forEach(({ coords }) => createBankBlip(coords));
+}
 
 RegisterNuiCallback('exit', async (_: any, cb: Function) => {
   cb(1);
