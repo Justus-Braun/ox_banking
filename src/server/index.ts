@@ -1,6 +1,6 @@
 import type { OxAccountRole, OxAccountUserMetadata } from '@overextended/ox_core';
 import { CreateAccount, GetAccount, GetCharacterAccount, GetPlayer } from '@overextended/ox_core/server';
-import { onClientCallback } from '@overextended/ox_lib/server';
+import { onClientCallback, versionCheck, checkDependency } from '@overextended/ox_lib/server';
 import { oxmysql } from '@overextended/oxmysql';
 import type { DateRange } from 'react-day-picker';
 import type {
@@ -14,6 +14,16 @@ import type {
   RawLogItem,
   Transaction,
 } from '../common/typings';
+
+versionCheck('overextended/ox_banking');
+
+const coreDepCheck: true | [false, string] = checkDependency('ox_core', '1.1.0');
+
+if (coreDepCheck !== true) {
+  setInterval(() => {
+    console.error(coreDepCheck[1]);
+  }, 1000);
+}
 
 onClientCallback('ox_banking:getAccounts', async (playerId): Promise<Account[]> => {
   const player = GetPlayer(playerId);
@@ -127,8 +137,19 @@ onClientCallback(
 
     if (!hasPermission) return;
 
-    const targetAccountId =
-      transferType === 'account' ? (target as number) : (await GetCharacterAccount(target))?.accountId;
+    let targetAccountId = 0;
+
+    try {
+      targetAccountId =
+        transferType === 'account'
+          ? (await GetAccount(target as number))?.accountId
+          : (await GetCharacterAccount(target))?.accountId;
+    } catch (e) {
+      return {
+        success: false,
+        message: 'account_id_not_exists',
+      };
+    }
 
     if (transferType === 'person' && !targetAccountId)
       return {
@@ -140,6 +161,12 @@ onClientCallback(
       return {
         success: false,
         message: 'account_id_not_exists',
+      };
+
+    if (account.accountId === targetAccountId)
+      return {
+        success: false,
+        message: 'same_account_transfer',
       };
 
     const player = GetPlayer(playerId);
@@ -201,7 +228,7 @@ onClientCallback('ox_banking:getDashboardData', async (playerId): Promise<Dashbo
 
   const invoices = await oxmysql.rawExecute<Invoice[]>(
     `
-     SELECT ai.id, ai.amount, UNIX_TIMESTAMP(ai.dueDate) as dueDate, UNIX_TIMESTAMP(ai.paidAt) as paidAt, a.label,
+     SELECT ai.id, ai.amount, UNIX_TIMESTAMP(ai.dueDate) as dueDate, UNIX_TIMESTAMP(ai.paidAt) as paidAt, CONCAT(a.label, ' - ', IFNULL(co.fullName, g.label)) AS label,
      CASE
         WHEN ai.payerId IS NOT NULL THEN 'paid'
         WHEN NOW() > ai.dueDate THEN 'overdue'
@@ -209,6 +236,8 @@ onClientCallback('ox_banking:getDashboardData', async (playerId): Promise<Dashbo
      END AS status
      FROM accounts_invoices ai
      LEFT JOIN accounts a ON a.id = ai.fromAccount
+     LEFT JOIN characters co ON (a.owner IS NOT NULL AND co.charId = a.owner)
+     LEFT JOIN ox_groups g ON (a.owner IS NULL AND g.name = a.group)
      WHERE ai.toAccount = ?
      ORDER BY ai.id DESC
      LIMIT 5
@@ -338,7 +367,7 @@ onClientCallback(
 
     if (!hasPermission) return false;
 
-    const currentRole = account.getCharacterRole(stateId);
+    const currentRole = await account.getCharacterRole(stateId);
 
     if (currentRole) return { success: false, message: 'invalid_input' };
 

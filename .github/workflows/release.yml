@@ -41,14 +41,14 @@ jobs:
       - name: Install dependencies
         run: pnpm i --frozen-lockfile
 
-      - name: Run build
-        run: pnpm build
-
       - name: Bump package version
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
           pnpm version ${{ github.ref_name }} --git-tag-version false
+
+      - name: Run build
+        run: pnpm build
 
       - name: Update repository
         run: |
@@ -58,7 +58,11 @@ jobs:
 
       - name: Bundle files
         run: |
-          zip -r ${{ github.event.repository.name }}.zip . -x "./.*" "./node_modules/*" "./scripts/*" "./src/*" "./tsconfig.json" "./pnpm-lock.yaml" "./package.json"
+          mkdir -p ./temp/ox_banking/src/client
+          cp ./{LICENSE,README.md,fxmanifest.lua} ./temp/ox_banking
+          cp ./src/client/client.lua ./temp/ox_banking/src/client
+          cp -r ./{dist,data,locales} ./temp/ox_banking
+          cd ./temp && zip -r ../ox_banking.zip ./ox_banking
 
       - name: Create Release
         uses: 'marvinpinto/action-automatic-releases@v1.2.1'
@@ -66,7 +70,7 @@ jobs:
         with:
           repo_token: '${{ secrets.GITHUB_TOKEN }}'
           title: '${{ env.RELEASE_VERSION }}'
-          prerelease: true
+          prerelease: false
           files: ${{ github.event.repository.name }}.zip
 
         env:
