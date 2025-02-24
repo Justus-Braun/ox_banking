@@ -11,6 +11,9 @@ importers:
       '@overextended/fx-utils':
         specifier: ^0.0.4
         version: 0.0.4
+      '@nativewrappers/client':
+        specifier: ^1.7.33
+        version: 1.7.33
       '@overextended/ox_core':
         specifier: ^0.32.0
         version: 0.32.0
